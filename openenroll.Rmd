@@ -15,6 +15,8 @@ knitr::opts_chunk$set(echo = FALSE)
 ```
 
 ```{r}
+
+
 library(readr) #importing csv files
 library(dplyr) #general analysis 
 library(ggplot2) #making charts
@@ -36,5 +38,14 @@ library(ggthemes)
 openenroll <-  read_csv("openenroll.csv")
 
 openenroll
+```
+```{r}
+openenroll_core <-  openenroll %>%   filter(location=='CORE CITIES', datayear!='99-00') %>% group_by(datayear, studentgroup) %>% summarise(totalstudents=sum(TotalEnrolled), totalleaving=sum(Leaving_Trad)+sum(leaving_charter), pctleaving=totalleaving/totalstudents)
+
+openenroll_core %>% filter(studentgroup=='BLACK')
+
+g1 <-  ggplot(openenroll_core, aes(x=datayear, y=pctleaving, group=studentgroup))+
+  geom_line()
+plot(g1)
 ```
 
