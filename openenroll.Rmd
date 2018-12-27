@@ -1,0 +1,40 @@
+---
+title: "Minnesota schools Open enrollment by race"
+author: "MaryJo Webster"
+date:  "Last updated: `r Sys.Date()`"
+output:
+  html_document: 
+    #toc: true
+    #to_depth: 1
+    #toc_float: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+library(readr) #importing csv files
+library(dplyr) #general analysis 
+library(ggplot2) #making charts
+library(lubridate) #date functions
+library(reshape2) #use this for melt function to create one record for each team
+library(tidyr)
+library(janitor) #use this for doing crosstabs
+library(scales) #needed for stacked bar chart axis labels
+library(knitr) #needed for making tables in markdown page
+library(htmltools)#this is needed for Rstudio to display kable and other html code
+library(rmarkdown)
+library(kableExtra)
+library(ggthemes)
+
+
+```
+
+```{r}
+openenroll <-  read_csv("openenroll.csv")
+
+openenroll
+```
+
