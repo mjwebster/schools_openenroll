@@ -30,22 +30,179 @@ library(htmltools)#this is needed for Rstudio to display kable and other html co
 library(rmarkdown)
 library(kableExtra)
 library(ggthemes)
+library(RMySQL)
+
+```
+
+
+```{r}
+#connect to the database; it will launch pop-ups asking for you to supply your username and password
+#Change MYDATABASENAME to the name of the database in your server
+
+
+
+
+con <- dbConnect(RMySQL::MySQL(), host = rstudioapi::askForPassword("host"), dbname="Schools", user= rstudioapi::askForPassword("Database user"), password=rstudioapi::askForPassword("Database password"))
+
+
+
+data1 <- dbSendQuery(con, "select * from openenroll_byrace")
+
+openenroll <- fetch(data1, n=-1)
+
+dbClearResult(data1)
+
+
+data2 <- dbSendQuery(con, "select * from enroll_race_district where districttype<>'07'  and (datayear like '0%' or datayear like '1%' or datayear='99-00')")
+
+enroll_original <- fetch(data2, n=-1)
+
+dbClearResult(data2)
+
+
+data3 <- dbSendQuery(con, "select * from DistrictList")
+
+districtlist <- fetch(data3, n=-1)
+
+dbClearResult(data3)
+
+
+#disconnect connection
+dbDisconnect(con)
+
 
 
 ```
 
 ```{r}
-openenroll <-  read_csv("openenroll.csv")
 
-openenroll
+
+
+
+#limit down the enrollment data to only fields we need
+enroll <- enroll_original %>%
+  filter(districtType=='01' | districtType=='03' | districtType=='08') %>%
+  select(DataYear, yr, districtid, districtType, location, amIndian, Asian, Black, white, Hispanic) %>%
+  rename(`AMERICAN INDIAN`=amIndian,ASIAN=Asian,BLACK=Black, WHITE=white, HISPANIC=Hispanic)
+
+#normalize the enroll file so it matches the open enrollment data
+enroll_melt <-  melt(enroll, id=c("DataYear", "yr", "districtid", "districtType", "location")) %>% rename(enrolled=value, studentgroup=variable)
+
+
+
+
+#group and summarise the open enroll data for those who are open enrolling elsewhere
+#note this groups by the residentdistrictid (where kid lives)
+openenroll_trad <-  openenroll %>%
+  filter(charterflag=='trad') %>%
+  group_by(datayear, residentdistrictid, StudentGroup) %>%
+  summarise(LeavingToTrad=sum(CountOfStudentsEnrolled))
+
+
+#group and summarise the open enroll data for those who are going to charters
+#note this groups by the residentdistrictid (where kid lives)
+openenroll_charter <-  openenroll%>%
+  filter(charterflag=='charter') %>%
+  group_by(datayear, residentdistrictid, StudentGroup) %>% summarise(LeavingToCharter=sum(CountOfStudentsEnrolled))
+
+#group and summarise open enroll data to count number of kids coming into district via open enrollment
+#note this groups by the districtID (which is the district kid is attending)
+openenroll_comingin <- openenroll%>%
+  filter(charterflag=='trad') %>%
+  group_by(datayear, districtid, StudentGroup) %>% summarise(ComingIn=sum(CountOfStudentsEnrolled))
+
+
+
+#Join these pieces together
+#enroll_melt needs to be base table to retain all the districts
+
+openenroll_bydistrict <- left_join(enroll_melt, openenroll_trad, by=c("DataYear"="datayear", "districtid"="residentdistrictid", "studentgroup"="StudentGroup"))
+
+#populate new field with 0 where it is null
+openenroll_bydistrict$LeavingToTrad[is.na(openenroll_bydistrict$LeavingToTrad)]  <- 0
+
+
+
+
+
+
+#keep adding to the new table, creating a new data frame
+openenroll_bydistrict_2 <- left_join(openenroll_bydistrict, openenroll_charter, by=c("DataYear"="datayear", "districtid"="residentdistrictid", "studentgroup"="StudentGroup"))
+
+#populate new field with 0 where it is null
+openenroll_bydistrict_2$LeavingToCharter[is.na(openenroll_bydistrict_2$LeavingToCharter)]  <- 0
+
+#keep adding to the new table, creating a new data frame
+openenroll_bydistrict_final <-  left_join(openenroll_bydistrict_2, openenroll_comingin, by=c("DataYear"="datayear", "districtid"="districtid", "studentgroup"="StudentGroup"))
+
+#populate new field with 0 where it is null
+openenroll_bydistrict_final$ComingIn[is.na(openenroll_bydistrict_final$ComingIn)]  <- 0
+
+#add district information from the districtlist table
+openenroll_bydistrict_final <-  left_join(openenroll_bydistrict_final, districtlist %>% select(IDNumber, Organization, County, Metro7County), by=c("districtid"="IDNumber"))
+
+#remove data frames we don't need
+rm(data1)
+rm(data2)
+rm(data3)
+rm(openenroll_bydistrict)
+rm(openenroll_bydistrict_2)
+
+
+#remove an old district that doesn't have open enrollment
+#(IDNumber=='0604-01-000')
+
+openenroll_bydistrict_final <-  openenroll_bydistrict_final %>% filter(districtid!='0604-01-000')
+
+#openenroll_bydistrict_final$DataYear <-  factor(openenroll_bydistrict_final$DataYear, levels=c("99-00", "00-01", "01-02", "02-03", "03-04", "04-05", "05-06", "06-07", "07-08", "08-09", "09-10", "10-11", "11-12", "12-13", "13-14", "14-15", "15-16", "16-17", "17-18"))
+
+
+#convert yr variable to numeric so we can use it in the plots as a continuous variable
+openenroll_bydistrict_final$yr <- as.numeric(openenroll_bydistrict_final$yr)
+
+#create residents variable
+
+openenroll_bydistrict_final <- openenroll_bydistrict_final %>%
+  mutate(residents=(enrolled-ComingIn)+(LeavingToTrad+LeavingToCharter))
+
+
 ```
+
+# Total leaving home districts by year
 ```{r}
-openenroll_core <-  openenroll %>%   filter(location=='CORE CITIES', datayear!='99-00') %>% group_by(datayear, studentgroup) %>% summarise(totalstudents=sum(TotalEnrolled), totalleaving=sum(Leaving_Trad)+sum(leaving_charter), pctleaving=totalleaving/totalstudents)
+annual_totals <-  openenroll_bydistrict_final %>% group_by(yr) %>% summarise(leaveTrad=sum(LeavingToTrad),leaveCharter=sum(LeavingToCharter))
 
-openenroll_core %>% filter(studentgroup=='BLACK')
+annual_totals <-  melt(annual_totals, id.vars="yr")
 
-g1 <-  ggplot(openenroll_core, aes(x=datayear, y=pctleaving, group=studentgroup))+
-  geom_line()
+annual_totals$variable <-  factor(annual_totals$variable, levels=c("leaveTrad", "leaveCharter"), labels=c("Open Enroll", "Charter"))
+
+fill <-  c("#5F9EA0", "#E1B378")
+
+g1 <-  ggplot() + 
+  geom_bar(aes(y=value, x=yr, fill=variable), data=annual_totals, stat="identity") + 
+  theme(legend.position="bottom", legend.direction="horizontal", legend.title=element_blank())+
+  scale_x_continuous(name="School year", breaks=seq(2000,2018,2))+
+  scale_y_continuous(name="Number of students", limits=c(0,150000))+
+  scale_fill_manual(values=fill)+
+  theme_hc()+
+      labs(title = "Number of students leaving home districts", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+
 plot(g1)
+```
+
+```{r}
+
+
+annual_pct <- openenroll_bydistrict_final %>% group_by(yr) %>% summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), rez=sum(residents)) %>% mutate(pct=leaving/rez)
+
+
+
+g2 <- ggplot(data=annual_pct, aes(x = annual_pct$yr, y = pct, group=1)) +
+                  geom_line(stat="identity", color="red", size=1.5)+
+  scale_y_continuous(name="Percent of residents leaving", limits=c(0, .20), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))
+plot(g2)
 ```
 
