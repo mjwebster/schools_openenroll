@@ -12,9 +12,11 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
-```
 
-```{r}
+#install.packages("rmarkdown")
+#install.packages("RMySQL")
+
+#setwd("C:/Users/webstmj/OneDrive - Star Tribune/Rprojects/schools_openenroll")
 
 
 library(readr) #importing csv files
@@ -32,139 +34,16 @@ library(kableExtra)
 library(ggthemes)
 library(RMySQL)
 
-```
 
 
-```{r}
-#connect to the database; it will launch pop-ups asking for you to supply your username and password
-#Change MYDATABASENAME to the name of the database in your server
-
-
-
-
-con <- dbConnect(RMySQL::MySQL(), host = rstudioapi::askForPassword("host"), dbname="Schools", user= rstudioapi::askForPassword("Database user"), password=rstudioapi::askForPassword("Database password"))
-
-
-
-data1 <- dbSendQuery(con, "select * from openenroll_byrace")
-
-openenroll <- fetch(data1, n=-1)
-
-dbClearResult(data1)
-
-
-data2 <- dbSendQuery(con, "select * from enroll_race_district where districttype<>'07'  and (datayear like '0%' or datayear like '1%' or datayear='99-00')")
-
-enroll_original <- fetch(data2, n=-1)
-
-dbClearResult(data2)
-
-
-data3 <- dbSendQuery(con, "select * from DistrictList")
-
-districtlist <- fetch(data3, n=-1)
-
-dbClearResult(data3)
-
-
-#disconnect connection
-dbDisconnect(con)
-
-
+#http://strib-data-public.s3-us-west-1.amazonaws.com/projects/schools/openenroll.html
 
 ```
 
-```{r}
 
 
 
-
-#limit down the enrollment data to only fields we need
-enroll <- enroll_original %>%
-  filter(districtType=='01' | districtType=='03' | districtType=='08') %>%
-  select(DataYear, yr, districtid, districtType, location, amIndian, Asian, Black, white, Hispanic) %>%
-  rename(`AMERICAN INDIAN`=amIndian,ASIAN=Asian,BLACK=Black, WHITE=white, HISPANIC=Hispanic)
-
-#normalize the enroll file so it matches the open enrollment data
-enroll_melt <-  melt(enroll, id=c("DataYear", "yr", "districtid", "districtType", "location")) %>% rename(enrolled=value, studentgroup=variable)
-
-
-
-
-#group and summarise the open enroll data for those who are open enrolling elsewhere
-#note this groups by the residentdistrictid (where kid lives)
-openenroll_trad <-  openenroll %>%
-  filter(charterflag=='trad') %>%
-  group_by(datayear, residentdistrictid, StudentGroup) %>%
-  summarise(LeavingToTrad=sum(CountOfStudentsEnrolled))
-
-
-#group and summarise the open enroll data for those who are going to charters
-#note this groups by the residentdistrictid (where kid lives)
-openenroll_charter <-  openenroll%>%
-  filter(charterflag=='charter') %>%
-  group_by(datayear, residentdistrictid, StudentGroup) %>% summarise(LeavingToCharter=sum(CountOfStudentsEnrolled))
-
-#group and summarise open enroll data to count number of kids coming into district via open enrollment
-#note this groups by the districtID (which is the district kid is attending)
-openenroll_comingin <- openenroll%>%
-  filter(charterflag=='trad') %>%
-  group_by(datayear, districtid, StudentGroup) %>% summarise(ComingIn=sum(CountOfStudentsEnrolled))
-
-
-
-#Join these pieces together
-#enroll_melt needs to be base table to retain all the districts
-
-openenroll_bydistrict <- left_join(enroll_melt, openenroll_trad, by=c("DataYear"="datayear", "districtid"="residentdistrictid", "studentgroup"="StudentGroup"))
-
-#populate new field with 0 where it is null
-openenroll_bydistrict$LeavingToTrad[is.na(openenroll_bydistrict$LeavingToTrad)]  <- 0
-
-
-
-
-
-
-#keep adding to the new table, creating a new data frame
-openenroll_bydistrict_2 <- left_join(openenroll_bydistrict, openenroll_charter, by=c("DataYear"="datayear", "districtid"="residentdistrictid", "studentgroup"="StudentGroup"))
-
-#populate new field with 0 where it is null
-openenroll_bydistrict_2$LeavingToCharter[is.na(openenroll_bydistrict_2$LeavingToCharter)]  <- 0
-
-#keep adding to the new table, creating a new data frame
-openenroll_bydistrict_final <-  left_join(openenroll_bydistrict_2, openenroll_comingin, by=c("DataYear"="datayear", "districtid"="districtid", "studentgroup"="StudentGroup"))
-
-#populate new field with 0 where it is null
-openenroll_bydistrict_final$ComingIn[is.na(openenroll_bydistrict_final$ComingIn)]  <- 0
-
-#add district information from the districtlist table
-openenroll_bydistrict_final <-  left_join(openenroll_bydistrict_final, districtlist %>% select(IDNumber, Organization, County, Metro7County), by=c("districtid"="IDNumber"))
-
-#remove data frames we don't need
-rm(data1)
-rm(data2)
-rm(data3)
-rm(openenroll_bydistrict)
-rm(openenroll_bydistrict_2)
-
-
-#remove an old district that doesn't have open enrollment
-#(IDNumber=='0604-01-000')
-
-openenroll_bydistrict_final <-  openenroll_bydistrict_final %>% filter(districtid!='0604-01-000')
-
-#openenroll_bydistrict_final$DataYear <-  factor(openenroll_bydistrict_final$DataYear, levels=c("99-00", "00-01", "01-02", "02-03", "03-04", "04-05", "05-06", "06-07", "07-08", "08-09", "09-10", "10-11", "11-12", "12-13", "13-14", "14-15", "15-16", "16-17", "17-18"))
-
-
-#convert yr variable to numeric so we can use it in the plots as a continuous variable
-openenroll_bydistrict_final$yr <- as.numeric(openenroll_bydistrict_final$yr)
-
-#create residents variable
-
-openenroll_bydistrict_final <- openenroll_bydistrict_final %>%
-  mutate(residents=(enrolled-ComingIn)+(LeavingToTrad+LeavingToCharter))
-
+```{r, code=readLines("openenroll_processdata.R"), echo=FALSE, warning=FALSE, message=FALSE}
 
 ```
 
@@ -192,6 +71,8 @@ g1 <-  ggplot() +
 plot(g1)
 ```
 
+
+#Percent of students leaving statewide
 ```{r}
 
 
@@ -200,9 +81,306 @@ annual_pct <- openenroll_bydistrict_final %>% group_by(yr) %>% summarise(leaving
 
 
 g2 <- ggplot(data=annual_pct, aes(x = annual_pct$yr, y = pct, group=1)) +
-                  geom_line(stat="identity", color="red", size=1.5)+
-  scale_y_continuous(name="Percent of residents leaving", limits=c(0, .20), labels=percent)+
-  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))
+                  geom_line(stat="identity", color="blue", size=1.5)+
+  scale_y_continuous(name="Percent", limits=c(0, .20), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+  theme_hc()+
+        labs(title = "Pct of students leaving home districts", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+
+
 plot(g2)
+```
+
+
+#Racial groups
+```{r}
+annual_pct_groups <- openenroll_bydistrict_final %>% group_by(yr, studentgroup) %>% summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), rez=sum(residents)) %>% mutate(pct=leaving/rez)
+
+
+
+g3 <- ggplot(data=annual_pct_groups, aes(x = annual_pct_groups$yr, y = pct, group=studentgroup, col=studentgroup)) +
+                  geom_line(stat="identity",  size=1.5)+
+  scale_y_continuous(name="Percent of residents leaving", limits=c(0, .3), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Pct of students leaving home districts", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g3)
+```
+
+
+
+
+
+#By location
+```{r}
+annual_pct_location <- openenroll_bydistrict_final %>% group_by(yr, Location) %>% summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), rez=sum(residents)) %>% mutate(pct=leaving/rez)
+
+
+
+g4 <- ggplot(data=annual_pct_location, aes(x = annual_pct_location$yr, y = pct, group=Location, col=Location)) +
+                  geom_line(stat="identity",  size=1.5)+
+  scale_y_continuous(name="Percent of residents leaving", limits=c(0, .35), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Pct of students leaving home districts", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g4)
+```
+
+
+#Core Cities only - by racial groups
+```{r}
+annual_pct_corecities <- openenroll_bydistrict_final %>% filter(Location=='CORE CITIES') %>% group_by(yr, studentgroup) %>% summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), rez=sum(residents)) %>% mutate(pct=leaving/rez)
+
+
+
+g6 <- ggplot(data=annual_pct_corecities, aes(x = annual_pct_corecities$yr, y = pct, group=studentgroup, col=studentgroup)) +
+                  geom_line(stat="identity",  size=1.5)+
+  scale_y_continuous(name="Percent of residents leaving", limits=c(0, .40), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Pct of students leaving home districts", 
+       subtitle = "Core cities - 1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g6)
+```
+
+
+
+
+#Metro districts losing largest percentage in 2017-18
+```{r}
+openenroll_bydistrict_final %>% filter(yr=='2018', Metro7County=='yes') %>% group_by(Organization) %>% summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), rez=sum(residents)) %>% mutate(pct=leaving/rez) %>% arrange(desc(pct)) %>% select(Organization, pct) %>% 
+  filter(pct>=.2) %>% 
+    kable("html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position="left")
+```
+
+#Metro districts losing largest percentage in 2016-17
+```{r}
+openenroll_bydistrict_final %>% filter(yr=='2017', Metro7County=='yes') %>% group_by(Organization) %>% summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), rez=sum(residents)) %>% mutate(pct=leaving/rez) %>% arrange(desc(pct)) %>% select(Organization, pct) %>% 
+    filter(pct>=.15) %>% 
+    kable("html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position="left")
+```
+
+
+#Metro Districts with largest share coming in- 2017-18
+```{r}
+openenroll_bydistrict_final %>% filter(yr=='2018', Metro7County=='yes') %>% group_by(Organization) %>% summarise(In=sum(ComingIn), enroll=sum(enrolled)) %>% mutate(pct=In/enroll) %>% arrange(desc(pct)) %>% select(Organization, pct) %>% 
+  filter(pct>=.2) %>% 
+    kable("html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position="left")
+```
+
+
+#Minnetonka
+```{r}
+minnetonka <-  openenroll_bydistrict_final %>% filter(Organization=='Minnetonka Public School District') %>% group_by(yr) %>%  summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), In=sum(ComingIn), enroll=sum(enrolled), rez=sum(residents)) %>% mutate(pct=In/enroll)
+
+g5 <- ggplot(data=minnetonka, aes(x = minnetonka$yr, y = pct, group=1)) +
+                  geom_line(stat="identity", color="red", size=1.5)+
+  scale_y_continuous(name="Percent of enrolled from elsewhere", limits=c(0, .35), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Percent coming into Minnetonka", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g5)
+```
+
+
+#Mahtomedi
+```{r}
+mahtomedi <-  openenroll_bydistrict_final %>% filter(Organization=='Mahtomedi Public School District') %>% group_by(yr) %>%  summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), In=sum(ComingIn), enroll=sum(enrolled), rez=sum(residents)) %>% mutate(pct=In/enroll)
+
+g7 <- ggplot(data=mahtomedi, aes(x = mahtomedi$yr, y = pct, group=1)) +
+                  geom_line(stat="identity", color="red", size=1.5)+
+  scale_y_continuous(name="Percent of enrolled from elsewhere", limits=c(0, .35), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Percent coming into Mahtomedi", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g7)
+```
+
+#Brooklyn Center - coming in
+
+```{r}
+brooklyncenter_in <-  openenroll_bydistrict_final %>% filter(Organization=='Brooklyn Center School District') %>% group_by(yr) %>%  summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), In=sum(ComingIn), enroll=sum(enrolled), rez=sum(residents)) %>% mutate(pct=In/enroll)
+
+g10 <- ggplot(data=brooklyncenter_in, aes(x = brooklyncenter_in$yr, y = pct, group=1)) +
+                  geom_line(stat="identity", color="red", size=1.5)+
+  scale_y_continuous(name="Percent of enrolled from elsewhere", limits=c(0, .5), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Percent coming into Brooklyn Center", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g10)
+```
+
+
+#Brooklyn Center - leaving
+
+
+```{r}
+brooklyncenter <-  openenroll_bydistrict_final %>% filter(Organization=='Brooklyn Center School District') %>% group_by(yr) %>%  summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), In=sum(ComingIn), enroll=sum(enrolled), rez=sum(residents)) %>% mutate(pct=leaving/rez)
+
+g9 <- ggplot(data=brooklyncenter, aes(x = brooklyncenter$yr, y = pct, group=1)) +
+                  geom_line(stat="identity", color="blue", size=1.5)+
+  scale_y_continuous(name="Percent", limits=c(0, .4), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Percent leaving Brooklyn Center", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g9)
+```
+
+
+
+#Columbia Heights
+```{r}
+columbiaheights <-  openenroll_bydistrict_final %>% filter(Organization=='Columbia Heights Public School Dist') %>% group_by(yr) %>%  summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), In=sum(ComingIn), enroll=sum(enrolled), rez=sum(residents)) %>% mutate(pct=leaving/rez)
+
+g8 <- ggplot(data=columbiaheights, aes(x = columbiaheights$yr, y = pct, group=1)) +
+                  geom_line(stat="identity", color="blue", size=1.5)+
+  scale_y_continuous(name="Percent", limits=c(0, .4), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Percent leaving Columbia Heights", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g8)
+```
+
+
+
+#Brooklyn Center -- top destinations
+```{r}
+openenroll %>% filter(residentdistrictnumber=='0286', datayear=='17-18') %>% group_by(districtname) %>% summarise(leavingto=sum(CountOfStudentsEnrolled)) %>% arrange(desc(leavingto)) %>% 
+  filter(leavingto>=20) %>% 
+    kable("html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position="left")
+```
+
+#Brooklyn Center -- top origins
+
+```{r}
+openenroll %>% filter(districtnumber=='0286', datayear=='17-18') %>% group_by(residentdistrictname) %>% summarise(In=sum(CountOfStudentsEnrolled)) %>% arrange(desc(In)) %>% 
+  filter(In>=10) %>% 
+    kable("html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position="left")
+```
+
+
+#Osseo
+```{r}
+osseo <-  openenroll_bydistrict_final %>% filter(Organization=='Osseo Public School District') %>% group_by(yr) %>%  summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), In=sum(ComingIn), enroll=sum(enrolled), rez=sum(residents)) %>% mutate(pct=leaving/rez)
+
+g11 <- ggplot(data=osseo, aes(x = osseo$yr, y = pct, group=1)) +
+                  geom_line(stat="identity", color="blue", size=1.5)+
+  scale_y_continuous(name="Percent", limits=c(0, .4), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Percent leaving Osseo", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g11)
+```
+
+#Minneapolis
+
+```{r}
+mpls <-  openenroll_bydistrict_final %>% filter(Organization=='Minneapolis Public School District') %>% group_by(yr) %>%  summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), In=sum(ComingIn), enroll=sum(enrolled), rez=sum(residents)) %>% mutate(pct=leaving/rez)
+
+g12 <- ggplot(data=mpls, aes(x = mpls$yr, y = pct, group=1)) +
+                  geom_line(stat="identity", color="blue", size=1.5)+
+  scale_y_continuous(name="Percent", limits=c(0, .4), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Percent leaving Minneapolis", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g12)
+```
+
+
+```{r}
+annual_pct_groups_mpls <- openenroll_bydistrict_final %>% filter(Organization=='Minneapolis Public School District') %>% group_by(yr, studentgroup) %>% summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), rez=sum(residents)) %>% mutate(pct=leaving/rez)
+
+
+
+g14 <- ggplot(data=annual_pct_groups_mpls, aes(x = annual_pct_groups_mpls$yr, y = pct, group=studentgroup, col=studentgroup)) +
+                  geom_line(stat="identity",  size=1.5)+
+  scale_y_continuous(name="Percent of residents leaving", limits=c(0, .5), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Racial groups leaving Minneapolis", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g14)
+
+#write.csv(annual_pct_groups_mpls, "mpls_by_race.csv", row.names = FALSE)
+```
+
+
+
+
+# St Paul
+```{r}
+sp <-  openenroll_bydistrict_final %>% filter(Organization=='St. Paul Public School District') %>% group_by(yr) %>%  summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), In=sum(ComingIn), enroll=sum(enrolled), rez=sum(residents)) %>% mutate(pct=leaving/rez)
+
+g13 <- ggplot(data=sp, aes(x = sp$yr, y = pct, group=1)) +
+                  geom_line(stat="identity", color="blue", size=1.5)+
+  scale_y_continuous(name="Percent", limits=c(0, .4), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Percent leaving St. Paul", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g13)
+```
+
+
+```{r}
+annual_pct_groups_sp <- openenroll_bydistrict_final %>% filter(Organization=='St. Paul Public School District') %>% group_by(yr, studentgroup) %>% summarise(leaving=sum(LeavingToTrad)+sum(LeavingToCharter), rez=sum(residents)) %>% mutate(pct=leaving/rez)
+
+
+
+g15 <- ggplot(data=annual_pct_groups_sp, aes(x = annual_pct_groups_sp$yr, y = pct, group=studentgroup, col=studentgroup)) +
+                  geom_line(stat="identity",  size=1.5)+
+  scale_y_continuous(name="Percent of residents leaving", limits=c(0, .5), labels=percent)+
+  scale_x_continuous(name="School year", breaks=seq(2000, 2018, 2))+
+    theme_hc()+
+      labs(title = "Racial groups leaving St. Paul", 
+       subtitle = "1999-00 to 2017-18",
+       caption = "Graphic by MaryJo Webster")
+plot(g15)
+```
+
+
+
+```{r loadtoaws, echo=FALSE, eval=FALSE, results="hide"}
+
+library(aws.s3)
+Sys.setenv("AWS_ACCESS_KEY_ID" =  rstudioapi::askForPassword("AWS_ACCESS_KEY_ID"),
+
+           "AWS_SECRET_ACCESS_KEY" = rstudioapi::askForPassword("AWS_SECRET_ACCESS_KEY"))
+
+get_bucket("strib-data-public")
+
+
+put_object(file = "openenroll.html", object = "projects/schools/openenroll.html", bucket = "strib-data-public")
+
+put_object(file = "openenroll.html", object = "projects/schools/openenroll.html", bucket = "strib-data-public", acl=c("public-read"))
+
 ```
 
