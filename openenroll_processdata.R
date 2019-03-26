@@ -158,4 +158,13 @@ openenroll_bydistrict_final$yr <- as.numeric(openenroll_bydistrict_final$yr)
 openenroll_bydistrict_final <- openenroll_bydistrict_final %>%
   mutate(residents=(enrolled-ComingIn)+(LeavingToTrad+LeavingToCharter))
 
+#write.csv(openenroll_bydistrict_final, 'openenroll.csv', row.names=FALSE)
 
+
+#code below is for a request from Tony Lonetree, march 2019
+#stpaul_destinations <-  openenroll %>% filter(datayear=='17-18', residentdistrictnumber=='0625') %>%
+#  group_by(districtname, charterflag) %>%
+#  summarise(students=sum(CountOfStudentsEnrolled)) %>% 
+#  arrange(desc(students))
+
+#write.csv(stpaul_destinations, 'stpaul_destinations_1718.csv', row.names=FALSE)
